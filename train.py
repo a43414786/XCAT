@@ -1,0 +1,121 @@
+import torch
+from torch.autograd import Variable
+import torch.nn as nn
+from XCAT import *
+from dataset import *
+
+import numpy as np
+
+class L1_Charbonnier_loss(torch.nn.Module):
+    """L1 Charbonnierloss."""
+    def __init__(self,eps = 1e-1):
+        super(L1_Charbonnier_loss, self).__init__()
+        self.eps = eps
+ 
+    def forward(self, X, Y):
+        diff = torch.add(X, -Y)
+        error = torch.sqrt(diff * diff + self.eps)
+        loss = torch.mean(error)
+        return loss
+
+class Train():
+    def __init__(self,is_cuda= False) -> None:
+        self.is_cuda = is_cuda
+        self.model = XCAT(10)
+        if(is_cuda):
+            self.model = self.model.cuda()
+        self.criterian = self.getCriterian()
+        data = DIV2K(root="dataset/train")
+        self.train_loader = DataLoader(data, batch_size=1, shuffle=False, num_workers=0)
+        data = DIV2K(root="dataset/valid")
+        self.val_loader = DataLoader(data, batch_size=1, shuffle=False, num_workers=0)
+        
+        
+        
+    def getCriterian(self):
+        return L1_Charbonnier_loss(eps=0.1)
+    
+    def get_lr(self,epoch):
+        if(epoch == 0):
+            return 1e-3
+        if(epoch == 1):
+            return 1.375e-3
+        if(epoch == 2):
+            return 1.75e-3
+        if(epoch == 3):
+            return 2.125e-3
+        if(epoch == 4):
+            return 2.5e-3
+        else:
+            return 2.5e-3 - 2.4e-3 * ((epoch - 4) / 45)
+    
+    def getOptimizer(self,epoch):
+        return torch.optim.Adam(params = self.model.parameters(),
+                                          lr = self.get_lr(epoch),
+                                          betas=(0.9, 0.999),
+                                          eps=1e-8)
+    
+    def val(self):
+        total = []
+        for idx,(LR,HR) in enumerate(self.val_loader):
+            LR = Variable(LR)
+            HR = Variable(HR)
+            if(self.is_cuda):
+                LR = LR.cuda()
+                HR = HR.cuda()
+            out = self.model(LR)
+            total.append(PSNR()(RGB2YCbCr()(out),RGB2YCbCr()(HR)).item())
+            print(idx,end = '\r')
+        return np.average(total)    
+    def train(self):
+        for i in range(50):
+            optimizer = self.getOptimizer(i)
+            total = []
+            for idx,(LR,HR) in enumerate(self.train_loader):
+                LR = Variable(LR)
+                HR = Variable(HR)
+                if(self.is_cuda):
+                    LR = LR.cuda()
+                    HR = HR.cuda()
+                out = self.model(LR)
+                loss = self.criterian(out,HR)
+                total.append(PSNR()(RGB2YCbCr()(out),RGB2YCbCr()(HR)).item())
+                
+                optimizer.zero_grad()
+                loss.backward()
+                optimizer.step()
+                print(f'\r{idx}',end = '')
+                # print(f'\r[{"█"*i}{" "*(n-i)}] {i*100/n}%', end='')
+            val_psnr = self.val()                
+            print(f"epoch:{i} PSNR:{np.average(total)} val_PSNR:{val_psnr}")
+            
+class FirstTrain(Train):
+    pass
+
+class SecondTrain(Train):
+       
+    def getCriterian(self):
+        return nn.MSELoss()
+    
+    def getOptimizer(self):
+        return torch.optim.Adam(params = self.model.parameters(),
+                                          lr = 0.0001,
+                                          betas=(0.9, 0.999),
+                                          eps=1e-08)
+    
+    def warmUp(self,epoch):
+        print(epoch)
+        if(epoch < 5):return epoch * 2.5 + 1 
+        else:return 2.5 - 2.4 * ((epoch - 5) / 45)
+    
+            
+
+if __name__ == '__main__':
+    img = torch.FloatTensor(1, 3, 100, 100)
+    train = Train(is_cuda=True)
+    train.train()
+    # print(img)
+    # model = XCAT(10)
+    # out = model(img)
+    # print(out.shape)
+    # print(model(torch.randn(2, 3, 224, 224)).shape)
