@@ -19,9 +19,9 @@ class L1_Charbonnier_loss(torch.nn.Module):
         return loss
 
 class Train():
-    def __init__(self,is_cuda= False) -> None:
+    def __init__(self,is_cuda= False,m = 12) -> None:
         self.is_cuda = is_cuda
-        self.model = XCAT(10)
+        self.model = XCAT(m)
         if(is_cuda):
             self.model = self.model.cuda()
         self.criterian = self.getCriterian()
@@ -29,8 +29,6 @@ class Train():
         self.train_loader = DataLoader(data, batch_size=1, shuffle=False, num_workers=0)
         data = DIV2K(root="dataset/valid")
         self.val_loader = DataLoader(data, batch_size=1, shuffle=False, num_workers=0)
-        
-        
         
     def getCriterian(self):
         return L1_Charbonnier_loss(eps=0.1)
@@ -67,6 +65,18 @@ class Train():
             total.append(PSNR()(RGB2YCbCr()(out),RGB2YCbCr()(HR)).item())
             print(idx,end = '\r')
         return np.average(total)    
+    
+    def save(self,index,train_psnr,val_psnr):
+        if(index == 0):
+            with open('log.csv','w') as f:
+                f.writelines('epoch,train_psnr,val_psnr\n')
+        with open('log.csv','a') as f:
+            f.writelines(f'{index},{train_psnr},{val_psnr}\n')
+        if(index % 10 == 9):
+            if(not os.path.exists('model')):
+                os.mkdir('model')
+            torch.save(self.model.state_dict(),f"model/{index}.pth")
+            
     def train(self):
         for i in range(50):
             optimizer = self.getOptimizer(i)
@@ -84,38 +94,12 @@ class Train():
                 optimizer.zero_grad()
                 loss.backward()
                 optimizer.step()
-                print(f'\r{idx}',end = '')
-                # print(f'\r[{"█"*i}{" "*(n-i)}] {i*100/n}%', end='')
+                print(f' {idx}',end = '\r')
+            train_psnr = np.average(total)                
             val_psnr = self.val()                
-            print(f"epoch:{i} PSNR:{np.average(total)} val_PSNR:{val_psnr}")
-            
-class FirstTrain(Train):
-    pass
-
-class SecondTrain(Train):
-       
-    def getCriterian(self):
-        return nn.MSELoss()
-    
-    def getOptimizer(self):
-        return torch.optim.Adam(params = self.model.parameters(),
-                                          lr = 0.0001,
-                                          betas=(0.9, 0.999),
-                                          eps=1e-08)
-    
-    def warmUp(self,epoch):
-        print(epoch)
-        if(epoch < 5):return epoch * 2.5 + 1 
-        else:return 2.5 - 2.4 * ((epoch - 5) / 45)
-    
-            
+            self.save(i,train_psnr,val_psnr)
+            print(f"epoch:{i} PSNR:{train_psnr} val_PSNR:{val_psnr}")
 
 if __name__ == '__main__':
-    img = torch.FloatTensor(1, 3, 100, 100)
     train = Train(is_cuda=True)
     train.train()
-    # print(img)
-    # model = XCAT(10)
-    # out = model(img)
-    # print(out.shape)
-    # print(model(torch.randn(2, 3, 224, 224)).shape)
