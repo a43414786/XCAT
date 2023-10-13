@@ -6,6 +6,8 @@ from dataset import *
 
 import numpy as np
 
+M_NUM = 8
+
 class L1_Charbonnier_loss(torch.nn.Module):
     """L1 Charbonnierloss."""
     def __init__(self,eps = 1e-1):
@@ -21,6 +23,7 @@ class L1_Charbonnier_loss(torch.nn.Module):
 class Train():
     def __init__(self,is_cuda= False,m = 12) -> None:
         self.is_cuda = is_cuda
+        self.m = m
         self.model = XCAT(m)
         if(is_cuda):
             self.model = self.model.cuda()
@@ -67,15 +70,16 @@ class Train():
         return np.average(total)    
     
     def save(self,index,train_psnr,val_psnr):
+        if(not os.path.exists(f'{self.m}')):
+            os.mkdir(f'{self.m}')
+    
         if(index == 0):
-            with open('log.csv','w') as f:
+            with open(f'{self.m}/log.csv','w') as f:
                 f.writelines('epoch,train_psnr,val_psnr\n')
-        with open('log.csv','a') as f:
+        with open(f'{self.m}/log.csv','a') as f:
             f.writelines(f'{index},{train_psnr},{val_psnr}\n')
         if(index % 10 == 9):
-            if(not os.path.exists('model')):
-                os.mkdir('model')
-            torch.save(self.model.state_dict(),f"model/{index}.pth")
+            torch.save(self.model.state_dict(),f"{self.m}/{index}.pth")
             
     def train(self):
         for i in range(50):
@@ -101,5 +105,5 @@ class Train():
             print(f"epoch:{i} PSNR:{train_psnr} val_PSNR:{val_psnr}")
 
 if __name__ == '__main__':
-    train = Train(is_cuda=True)
+    train = Train(is_cuda=True,m=M_NUM)
     train.train()
